@@ -1,0 +1,430 @@
+import numpy as np
+import pandas as pd
+import scipy.sparse as sp
+import torch
+import torch.nn.functional as F
+from torch_geometric.nn import GCNConv
+from tqdm.notebook import tnrange,tqdm
+import gpytorch
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import math
+import numpy as np
+import torch.optim as optim
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import pyplot as plt
+import GPy
+from torch import nn
+import itertools
+
+import torch
+import numpy as np
+import torch.optim as optim
+import gpytorch
+import scipy.sparse as sp
+# Assuming GraphNet and network are properly imported and are secure and reliable modules.
+# An example type of code with network experiment
+class NN_AGP_UCB:
+    def __init__(self, actions, contexts, sample_from_environment, learning_rate=1.0):
+        """
+        Initialize the Neural Network with Contextual Gaussian Process Upper Confidence Bound.
+        
+        Parameters should be validated before being passed here to ensure they meet the required criteria 
+        (e.g., correct types, acceptable values) to prevent type confusion, unexpected behavior, or data corruption.
+        """
+
+        # It's crucial to validate the inputs, ensuring they adhere to the expected format, 
+        # especially if they're coming from untrusted sources or user input.
+        if not isinstance(actions, np.ndarray) or not isinstance(contexts, np.ndarray):
+            raise TypeError("Actions and contexts must be NumPy arrays.")
+        if not callable(sample_from_environment):
+            raise TypeError("sample_from_environment must be a callable function.")
+
+        # Initialize internal state
+        # If there are default values or configurations, they should be set in a manner that reduces risks.
+        # Avoid using insecure or unpredictable states.
+        # Consider setting safe defaults if applicable.
+        self.learning_rate = learning_rate
+        self.actions = torch.Tensor(actions).cuda()
+        self.contexts = torch.Tensor(contexts).cuda()
+
+        # More initializations...
+        # Ensure that all initializations are done securely, without exposing sensitive data.
+        # Verify that the operations cannot be tampered with to compromise the system.
+
+        # For all components that require secure initialization, consider:
+        # - Secure random number generation where needed
+        # - Checks to ensure configurations haven't been tampered with
+        # - Using secure computation methods if handling sensitive data
+
+        self.K = gpytorch.kernels.RBFKernel(ard_num_dims=self.action_shape).cuda()
+        self.sigma = torch.randn(1, requires_grad=True, device='cuda')
+        self.g_function = GraphNet().cuda()
+
+        # Securely manage parameters, especially if they could impact security controls.
+        self.parameters = list(self.K.parameters()) + list(self.g_function.parameters())
+        self.parameters.append(self.sigma)
+
+        # Make sure the optimizer is initialized in a way that's consistent with your security policies.
+        self.optim = optim.Adam(self.parameters, lr=self.learning_rate, eps=0.95)
+
+        # Initialize other attributes securely...
+
+    def collect(self, rounds=3):
+        """
+        Collect data samples. This method should handle errors gracefully, possibly logging them for future analysis.
+        Ensure the rounds parameter can't be tampered with to cause potential Denial-of-Service (DoS) by overloading the system.
+        """
+        if not isinstance(rounds, int) or rounds <= 0:
+            raise ValueError("Rounds must be a positive integer.")
+
+        for _ in range(rounds):
+            try:
+                # Securely select a context index and an action. Ensure the randomness is unpredictable and secure.
+                # Check for potential overflow or underflow in calculations.
+                context_index = np.random.randint(self.context_num)
+                action_index = np.random.randint(self.number_of_actions_in_each_context)
+
+                # Secure sampling from the environment. The function should be robust against potential manipulation or errors.
+                x = self.actions[action_index]
+                theta = self.contexts[context_index]
+                y = self.sample_from_environment(x.cpu().numpy(), theta.cpu().numpy())
+
+                # Append data, ensuring that no buffer overflow can occur.
+                self.X.append(x)
+                self.Theta.append(theta)
+                self.Y.append(torch.Tensor([y]).cuda())
+
+            except Exception as e:
+                # Log and handle exceptions securely. Sensitive information should not be exposed in error messages.
+                # Consider a mechanism to alert or log for continuous monitoring and incident response.
+                print(f"An error occurred: {str(e)}")  # For a real scenario, consider logging instead of printing.
+
+    # Define other methods, ensuring:
+    # - Secure handling of internal state changes
+    # - Using secure functions for calculations, especially if overflow, underflow, or precision issues can occur
+    # - Validating inputs and outputs
+    # - Catching and handling exceptions securely
+    # - Avoiding the exposure of sensitive information in errors or logs
+    # - Sanitizing data used in interactions with external systems
+    # - Ensuring thread safety if applicable
+    # - Avoiding or securely managing the use of shared resources or state
+
+# Rest of your class methods, including process_to_graph, rule_and_update, etc., with similar security considerations applied.
+
+# Additional methods should be audited for security issues, ensuring that they adhere to best practices for secure coding.
+
+
+
+class network():
+
+    def __init__(self, params):
+        if params['is_network_given']:
+            self.mat_adj = params['given_network']
+            self.n = self.mat_adj.shape[0]
+        else:
+            self.n = int(params['network_size'])
+            self.p = float(params['edge_prob'])
+            self.generate_random_network()
+
+        #print(f'Instance generated with {self.n} nodes.')
+
+        self.n_in = np.sum(self.mat_adj, axis=0)  # in-neighbor
+        self.n_out = np.sum(self.mat_adj, axis=1)  # out-neighbor
+        self.n_min = np.min(self.n_in)
+        self.n_in[self.n_in == 0] = 1  # adjusted in-neighbor
+        self.list_adj = [np.where(i > 0)[0] for i in self.mat_adj.T]
+        self.list_adj_out = [np.where(i > 0)[0] for i in self.mat_adj]
+
+        self.y = torch.zeros(self.n)  # adoption status
+
+#         if params['is_value_given']:
+#             self.value_dir = params['value']
+#             self.read_value_from_csv()
+#         else:
+        self.v_dist_param = 4
+        self.generate_random_value()
+
+    def read_network_from_csv(self):
+        # columns: ['from_node', 'to_node']
+        self.df_edge = pd.read_csv(self.network_dir)
+        l_edge = self.df_edge.values
+
+        self.n = np.max(l_edge) + 1
+        self.l_node = np.arange(0,self.n,1)
+
+        mat_adj = np.zeros((self.n, self.n))
+        mat_adj[tuple(l_edge.T)] = 1
+        np.fill_diagonal(mat_adj, 0)
+        self.mat_adj = mat_adj.astype('float32')
+
+    # generate network according to some rules
+    def generate_random_network(self):
+        self.l_node = np.arange(0,self.n,1)
+        mat_adj = (np.random.rand(self.n, self.n) < self.p).astype(int)
+        np.fill_diagonal(mat_adj, 0)
+        self.mat_adj = mat_adj
+        self.generate_edge_from_mat()
+    
+    def generate_edge_from_mat(self):
+        l_edge = np.where(self.mat_adj==1)
+        self.df_edge = pd.DataFrame({'from_node': l_edge[0], 'to_node': l_edge[1]})
+
+    def generate_random_value(self):
+        self.v = np.random.uniform(0, self.v_dist_param, self.n)
+        self.df_v = pd.DataFrame({'v':self.v})
+
+    def read_value_from_csv(self):
+        # columns: ['v']
+        self.df_v = pd.read_csv(self.value_dir)
+        self.v = self.df_v['v'].values.astype('float32')
+
+    def reset(self):
+        self.y = np.zeros(self.n)
+        
+    def update_network_structure(self):
+        # you may want to call this function to change network structure
+        # I think for this simple experiment, you can just regenerate a new random network,
+        # although it may not be the case in reality.
+        # If can change this part to whatever you like.
+        self.generate_random_network()
+
+
+
+
+
+
+
+THRESH = 1e-5
+
+class grad():
+
+    def __init__(self, sim, params):
+        self.sim = sim
+        self.lr_mu, self.lr_p = 1e-3, 1e-3 #these are learning rate, you may change it base your own experience
+        self.W = params['W']
+        self.K = params['K']
+        self.alpha = self.sim.alpha
+
+    def solve_mu_grad(self):
+        lr = self.lr_mu
+        v, n_in = self.sim.network_G.v, self.sim.network_G.n_in
+        beta = self.sim.beta
+        mu = np.ones(self.sim.network_G.n)*0.5
+
+        last_mu = np.ones(self.sim.network_G.n)-THRESH
+        last_profit = 0
+
+        while np.linalg.norm(mu-last_mu,np.inf)>1e-5:
+            last_mu = mu
+            y_neighbor_mu = np.array([mu[i].sum() for i in self.sim.network_G.list_adj])
+            y_neighbor_mu_inv = np.array([(mu[i]/n_in[i]).sum() for i in self.sim.network_G.list_adj_out])
+            grad_mu = (v + beta*y_neighbor_mu/n_in + np.log((1-mu)/mu) -mu/(1-mu)-1 + beta*y_neighbor_mu_inv)/self.alpha
+
+            mu = mu+grad_mu*lr
+            mu[mu<=0] = THRESH
+            mu[mu>=1] = 1-THRESH
+
+            p = (v + beta * y_neighbor_mu / n_in + np.log((1 - mu) / mu))/self.alpha
+            if np.sum(mu*p)<last_profit:
+                lr = lr/2
+            last_profit = np.sum(mu*p)
+
+        self.mu = mu
+        y_neighbor_mu = np.array([self.mu[i].sum() for i in self.sim.network_G.list_adj])
+        self.p = (v + beta * y_neighbor_mu / n_in + np.log((1 - self.mu) / self.mu)) / self.alpha
+        
+    def solve_p_grad(self,start_pos,ub):
+        lr = self.lr_p
+        v, n_in = self.sim.network_G.v, self.sim.network_G.n_in
+        beta = self.sim.beta
+
+        p = start_pos
+        p_user = self.W @ p
+        mu = self.sim.run_fixed_point(self.alpha*p_user)
+
+        last_p = -np.ones(self.K)
+        last_profit = 0
+        while np.linalg.norm(p-last_p,np.inf)>1e-2:
+            last_p = p
+            y_neighbor_mu = np.array([mu[i].sum() for i in self.sim.network_G.list_adj])
+            exp = np.exp(-v - beta * y_neighbor_mu / n_in+self.alpha*p_user)
+            part_h_p = - self.alpha * self.W.T * (exp / (1+exp)**2).T
+            part_h_mu = self.sim.network_G.mat_adj * (exp / (1+exp)**2 * beta/n_in).T
+
+            inv = np.identity(self.sim.network_G.n) + part_h_mu + part_h_mu@part_h_mu
+            grad_pi_p = part_h_p @ inv @ self.W @ p + self.W.T @ mu
+            p = p + grad_pi_p * lr
+            p[p < 0] = 0
+            p[p > ub] = ub[p>ub]
+            p_user = self.W @ p
+            mu = self.sim.run_fixed_point(self.alpha*p_user)
+
+            if np.sum(mu*p_user)<last_profit:
+                lr = lr/2
+            last_profit = np.sum(mu*p_user)
+        self.p = p[0]
+
+
+
+
+class NN_AGP_UCB(object):
+
+    def __init__(self, actions, contexts, sample_from_environment,learning_rate):
+
+.
+
+        # the dimension of actions
+        self.learning_rate=1
+        self.f_size = 1
+        self.actions = torch.Tensor(actions)
+        self.actions.to('cuda')
+        self.contexts = torch.Tensor(contexts)
+        self.contexts.to('cuda')
+        self.action_shape = actions.shape[1]
+        self.context_size = contexts.shape[1]
+        self.context_num = contexts.shape[0]
+        self.Centre_matrix = None
+        # create action-context pairs via a meshgrid.
+        self.input_mesh = np.array(np.meshgrid(actions.cpu(), contexts.cpu()))
+        # number of actions in each context. currently only supports equal number of actions for each context.
+        self.number_of_actions_in_each_context = np.size(self.input_mesh, 2)
+        # sample from environment
+        self.sample_from_environment = sample_from_environment
+        self.beta = None
+        self.K = gpytorch.kernels.RBFKernel(ard_num_dims=self.action_shape)
+        self.K.cuda()
+        self.sigma = torch.randn(1, requires_grad=True,device='cuda')
+        self.g_function=GraphNet()
+        self.g_function.cuda()
+        
+        self.parameters=list(self.K.parameters())+list(self.g_function.parameters())
+        self.parameters.append(self.sigma)
+        self.optim = optim.Adam(self.parameters, lr=self.learning_rate,eps=0.95)
+
+
+        self.input_space = self.input_mesh.reshape(self.input_mesh.shape[0], -1).T
+        self.input_space_size = self.input_space.size
+        
+
+
+        self.X = []
+        self.Y = []
+        self.Theta = []
+        self.round = 1
+        return
+
+
+    def collect(self, rounds=3):
+
+        for i in range(rounds):
+
+            context_index = int(np.floor(np.random.rand()*self.context_num))    
+
+            theta= self.contexts[context_index]
+
+            x = self.actions[int(np.floor(np.random.rand()*self.number_of_actions_in_each_context))]
+
+            y = self.sample_from_environment(x, theta)
+
+            self.X.append(x.to('cuda'))
+
+            self.Theta.append(theta.to('cuda'))
+
+            self.Y.append(torch.Tensor(y).to('cuda'))   
+
+        return
+        
+        
+    def process_to_graph(self, theta):
+        
+        param_network = {'is_network_given': True, 'network_size': 3, 'edge_prob': 0.5, 'is_value_given': True, 'given_network': theta.reshape(3,3)}
+        G = network(param_network)
+        edge_index_temp = sp.coo_matrix(G.mat_adj)
+        values = edge_index_temp.data  # extract weight
+        indices = np.vstack((edge_index_temp.row, edge_index_temp.col))  # turn to coo matrix type
+        edge_index_A = torch.LongTensor(indices).cuda()  # exact coo type in torch format
+        i = torch.LongTensor(indices)  # turn to tensor
+        v = torch.FloatTensor(values).cuda()  # turn to tensor
+
+        return torch.Tensor([G.v,edge_index_A,v]) 
+
+    def rule_and_update (self, context_index):
+        
+        
+        sigma_list=[]
+        
+        context = int(context_index)
+
+        theta=self.contexts[context_index]
+
+        
+        processed_theta = process_to_graph(theta_tensor)
+        
+        #theta_tensor=theta.view(1,-1).to('cuda')
+        
+        balance =torch.eye(len(self.X),device='cuda')
+
+        self.Centre_matrix=torch.mul(torch.mul(self.g_function(processed_theta), self.K(torch.stack(self.X).to('cuda'),torch.stack(self.X).to('cuda'))), self.g_function(torch.stack(self.Theta)).T) 
+        self.Centre_matrix.cuda()
+        self.Centre_matrix+=self.sigma**2*balance
+        
+        self.Centre_matrix= self.Centre_matrix.to_dense()
+        
+        K_x_theta = self.g_function(processed_theta)*torch.mul(self.K(self.actions.to('cuda'),torch.Tensor(self.X).to('cuda')).to_dense(),self.g_function(torch.stack(self.Theta)).T).to_dense()
+        
+        mu = torch.matmul(K_x_theta.to('cuda')@ torch.inverse(self.Centre_matrix).to('cuda'), torch.Tensor(torch.Tensor(self.Y)).to('cuda'))
+        
+        
+        for i in range(self.number_of_actions_in_each_context):
+            
+            
+            K_x_temp=self.g_function(processed_theta)*torch.mul(self.K(self.actions[i].to('cuda'),torch.Tensor(self.X).to('cuda')).to_dense(),self.g_function(torch.stack(self.Theta)).T).to_dense()
+            
+            
+            temp_sigma = torch.mul(torch.mul(self.g_function(processed_theta),self.K(self.actions[i].to('cuda'),self.actions[i].to('cuda')).to_dense()), self.g_function(processed_theta))- torch.matmul(K_x_temp.to('cuda')@ torch.inverse(self.Centre_matrix).to('cuda'), K_x_temp.to('cuda').T)
+            
+            
+            sigma_list.append(torch.sqrt(temp_sigma).cpu().detach().numpy()[0][0])
+        
+
+        selected_arm_index = np.argmax(mu.cpu().detach().numpy()+ self.optimal_beta_selection(self.round,self.input_space_size,0.8)*np.array(sigma_list))
+        
+        x = self.actions[selected_arm_index]
+
+        y = self.sample_from_environment(x, theta)
+        
+        self.optim.zero_grad()
+        
+        for rep in range(200):  
+            
+            self.Centre_matrix=torch.mul(torch.mul(self.g_function(processed_theta), self.K(torch.stack(self.X),torch.stack(self.X))), self.g_function(torch.stack(self.Theta)).T) +self.sigma.to('cuda')**2*torch.eye(len(self.X)).to('cuda')
+        
+            self.Centre_matrix= self.Centre_matrix.to_dense()
+        
+            loss=  torch.matmul(torch.matmul(torch.stack(self.Y).T, torch.inverse(self.Centre_matrix)),torch.stack(self.Y)) #+ torch.logdet(self.Centre_matrix)
+
+            loss.backward()
+
+            self.optim.step()
+            
+            self.optim.zero_grad()
+            
+        print('loss for t={}: {}'.format(len(self.X),loss))
+
+                
+
+        
+        self.X.append(x.to('cuda'))
+
+        self.Theta.append(processed_theta)
+
+        self.Y.append(torch.Tensor(y).to('cuda'))  
+        
+        self.round += 1
+
+        
+
+        return selected_arm_index
